@@ -144,6 +144,13 @@ export namespace converter {
 export function decoder(mtype: Type): Codegen;
 
 /**
+ * Generates a text decoder specific to the specified message type.
+ * @param mtype Message type
+ * @returns Codegen instance
+ */
+export function decoder_text(mtype: Type): Codegen;
+
+/**
  * Generates an encoder specific to the specified message type.
  * @param mtype Message type
  * @returns Codegen instance

@@ -74,6 +74,7 @@ protobuf.loadSync = loadSync;
 // Serialization
 protobuf.encoder          = require("./encoder");
 protobuf.decoder          = require("./decoder");
+protobuf.decoderText      = require("./decoder_text");
 protobuf.verifier         = require("./verifier");
 protobuf.converter        = require("./converter");
 

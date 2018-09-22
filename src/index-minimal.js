@@ -14,6 +14,7 @@ protobuf.Writer       = require("./writer");
 protobuf.BufferWriter = require("./writer_buffer");
 protobuf.Reader       = require("./reader");
 protobuf.BufferReader = require("./reader_buffer");
+protobuf.TextReader   = require("./reader_text");
 
 // Utility
 protobuf.util         = require("./util/minimal");

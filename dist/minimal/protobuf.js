@@ -1,6 +1,6 @@
 /*!
  * protobuf.js v6.8.8 (c) 2016, daniel wirtz
- * compiled thu, 19 jul 2018 00:33:25 utc
+ * compiled thu, 28 feb 2019 04:49:51 utc
  * licensed under the bsd-3-clause license
  * see: https://github.com/dcodeio/protobuf.js for details
  */
@@ -836,15 +836,16 @@ var protobuf = exports;
 protobuf.build = "minimal";
 
 // Serialization
-protobuf.Writer       = require(16);
-protobuf.BufferWriter = require(17);
+protobuf.Writer       = require(17);
+protobuf.BufferWriter = require(18);
 protobuf.Reader       = require(9);
 protobuf.BufferReader = require(10);
+protobuf.TextReader   = require(11);
 
 // Utility
-protobuf.util         = require(15);
-protobuf.rpc          = require(12);
-protobuf.roots        = require(11);
+protobuf.util         = require(16);
+protobuf.rpc          = require(13);
+protobuf.roots        = require(12);
 protobuf.configure    = configure;
 
 /* istanbul ignore next */
@@ -861,11 +862,11 @@ function configure() {
 protobuf.Writer._configure(protobuf.BufferWriter);
 configure();
 
-},{"10":10,"11":11,"12":12,"15":15,"16":16,"17":17,"9":9}],9:[function(require,module,exports){
+},{"10":10,"11":11,"12":12,"13":13,"16":16,"17":17,"18":18,"9":9}],9:[function(require,module,exports){
 "use strict";
 module.exports = Reader;
 
-var util      = require(15);
+var util      = require(16);
 
 var BufferReader; // cyclic
 
@@ -1268,7 +1269,7 @@ Reader._configure = function(BufferReader_) {
     });
 };
 
-},{"15":15}],10:[function(require,module,exports){
+},{"16":16}],10:[function(require,module,exports){
 "use strict";
 module.exports = BufferReader;
 
@@ -1276,7 +1277,7 @@ module.exports = BufferReader;
 var Reader = require(9);
 (BufferReader.prototype = Object.create(Reader.prototype)).constructor = BufferReader;
 
-var util = require(15);
+var util = require(16);
 
 /**
  * Constructs a new buffer reader instance.
@@ -1314,7 +1315,412 @@ BufferReader.prototype.string = function read_string_buffer() {
  * @returns {Buffer} Value read
  */
 
-},{"15":15,"9":9}],11:[function(require,module,exports){
+},{"16":16,"9":9}],11:[function(require,module,exports){
+"use strict";
+module.exports = TextReader;
+
+var util = require(16);
+
+function TextReader(text) {
+    this.text = text;
+    this.position = 0;
+    this.lineEnd = -1;
+    this.lineStart = 0;
+    this.line = -1;
+    this.token = "";
+}
+
+TextReader.create = function(text) {
+    return new TextReader(text);
+};
+
+TextReader.prototype.start = function(block) {
+    if (block) {
+        this.assert("{");
+    }
+};
+
+TextReader.prototype.end = function(block) {
+    var token = this.peek();
+    if (block && token === "}") {
+        this.assert("}");
+        return true;
+    }
+    return token === "";
+};
+
+TextReader.prototype.tag = function() {
+    return this.read();
+};
+
+TextReader.prototype.value = function() {
+    this.assert(":");
+}
+
+TextReader.prototype.int32 = function() {
+    var token = this.read();
+    var value = Number.parseInt(token, 10);
+    if (Number.isNaN(token - value)) {
+        throw new Error("Couldn't parse int '" + token + "'" + this.location());
+    }
+    return value;
+};
+
+TextReader.prototype.uint32 = function() {
+    var token = this.read();
+    var value = Number.parseInt(token, 10);
+    if (Number.isNaN(token - value)) {
+        throw new Error("Couldn't parse int '" + token + "'" + this.location());
+    }
+    return value;
+};
+
+TextReader.prototype.int64 = function() {
+    var token = this.read();
+    var value = Number.parseInt(token, 10);
+    if (Number.isNaN(token - value)) {
+        throw new Error("Couldn't parse int '" + token + "'" + this.location());
+    }
+    return value;
+};
+
+TextReader.prototype.float = function() {
+    return this.double();
+};
+
+TextReader.prototype.double = function() {
+    var token = this.read();
+    if (token.startsWith('nan')) {
+        return NaN;
+    }
+    if (token.startsWith('inf')) {
+        return Infinity;
+    }
+    if (token.startsWith('-inf')) {
+        return -Infinity;
+    }
+    if (token.endsWith('f')) {
+        token = token.substring(0, token.length - 1);
+    }
+    var value = Number.parseFloat(token);
+    if (Number.isNaN(token - value)) {
+        throw new Error("Couldn't parse float '" + token + "'" + this.location());
+    }
+    return value;
+};
+
+TextReader.prototype.string = function() {
+    var token = this.read();
+    if (token.length < 2) {
+        throw new Error("String is too short" + this.location());
+    }
+    var quote = token[0];
+    if (quote !== "'" && quote !== "\"") {
+        throw new Error("String is not in quotes" + this.location());
+    }
+    if (quote !== token[token.length - 1]) {
+        throw new Error("String quotes do not match" + this.location());
+    }
+    return token.substring(1, token.length - 1);
+};
+
+TextReader.prototype.bool = function() {
+    var token = this.read();
+    switch (token) {
+        case "true":
+        case "True":
+        case "1":
+            return true;
+        case "false":
+        case "False":
+        case "0":
+            return false;
+    }
+    throw new Error("Couldn't parse boolean '" + token + "'" + this.location());
+};
+
+TextReader.prototype.bytes = function() {
+    var token = this.string();
+    var i = 0;
+    var o = 0;
+    var length = token.length;
+    var a = new util.Array(length);
+    while (i < length) {
+        var c = token.charCodeAt(i++);
+        if (c !== 0x5C) {
+            a[o++] = c;
+        }
+        else {
+            if (i >= length) {
+                throw new Error("Unexpected end of bytes string" + this.location());
+            }
+            c = token.charCodeAt(i++);
+            switch (c) {
+                case 0x27: a[o++] = 0x27; break; // '
+                case 0x5C: a[o++] = 0x5C; break; // \\
+                case 0x22: a[o++] = 0x22; break; // "
+                case 0x72: a[o++] = 0x0D; break; // \r
+                case 0x6E: a[o++] = 0x0A; break; // \n
+                case 0x74: a[o++] = 0x09; break; // \t
+                case 0x62: a[o++] = 0x08; break; // \b
+                case 0x58: // x
+                case 0x78: // X
+                    for (var xi = 0; xi < 2; xi++) {
+                        if (i >= length) {
+                            throw new Error("Unexpected end of bytes string" + this.location());
+                        }
+                        var xd = token.charCodeAt(i++);
+                        xd = xd >= 65 && xd <= 70 ? xd - 55 : xd >= 97 && xd <= 102 ? xd - 87 : xd >= 48 && xd <= 57 ? xd - 48 : -1;
+                        if (xd === -1) {
+                            throw new Error("Unexpected hex digit '" + xd + "' in bytes string" + this.location());
+                        }
+                        a[o] = a[o] << 4 | xd;
+                    }
+                    o++;
+                    break;
+                default:
+                    if (c < 48 || c > 57) { // 0-9
+                        throw new Error("Unexpected character '" + c + "' in bytes string" + this.location());
+                    }
+                    i--;
+                    for (var oi = 0; oi < 3; oi++) {
+                        if (i >= length) {
+                            throw new Error("Unexpected end of bytes string" + this.location());
+                        }
+                        var od = token.charCodeAt(i++);
+                        if (od < 48 || od > 57) {
+                            throw new Error("Unexpected octal digit '" + od + "' in bytes string" + this.location());
+                        }
+                        a[o] = a[o] << 3 | od - 48;
+                    }
+                    o++;
+                    break;
+            }
+       }
+    }
+    return a.slice(0, o);
+};
+
+TextReader.prototype.enum = function(type) {
+    var token = this.read();
+    if (!Object.prototype.hasOwnProperty.call(type, token)) {
+        var value = Number.parseInt(token, 10);
+        if (!Number.isNaN(token - value)) {
+            return value;
+        }
+        throw new Error("Couldn't parse enum '" + token + "'" + this.location());
+    }
+    return type[token];
+};
+
+TextReader.prototype.any = function(message) {
+    var c = this.peek();
+    if (c === "[") {
+        this.read();
+        var begin = this.position;
+        var end = this.text.indexOf("]", begin);
+        if (end === -1 || end >= this.next) {
+            throw new Error("End of Any type_url not found" + this.location());
+        }
+        message.type_url = this.text.substring(begin, end);
+        this.position = end + 1;
+        message.value = this.skip().substring(1);
+        this.assert("}");
+        return true;
+    }
+    return false;
+};
+
+TextReader.prototype.first = function(c) {
+    var token = this.peek();
+    if (token == '[') {
+        this.read();
+        return true;
+    }
+    return false;
+};
+
+TextReader.prototype.last = function() {
+    var token = this.peek();
+    if (token == ']') {
+        this.read();
+        return true;
+    }
+    return false;
+};
+
+TextReader.prototype.next = function() {
+    var token = this.peek();
+    if (token == ',') {
+        this.read();
+        return;
+    }
+    if (token == ']') {
+        return;
+    }
+    this.handle(token);
+}
+
+TextReader.prototype.skip = function() {
+    var token = this.peek();
+    if (token == ':') {
+        this.value();
+        token = this.peek();
+        if (token == '[') {
+            var list = this.position;
+            this.read();
+            while (!this.last()) {
+                token = this.read();
+                if (token == '') {
+                    this.handle(token);
+                }
+                this.next();
+            }
+            return this.text.substring(list, this.position);
+        }
+        else if (token != '{')
+        {
+            var literal = this.position;
+            this.read();
+            return this.text.substring(literal, this.position);
+        }
+    }
+    if (token == '{') {
+        var message = this.position;
+        this.assert("{");
+        while (!this.end(true)) {
+            this.tag();
+            this.skip();
+        }
+        return this.text.substring(message, this.position);
+    }
+    this.handle(token);
+};
+
+TextReader.prototype.handle = function(token) {
+    throw new Error("Unexpected token '" + token + "'" + this.location());
+};
+
+TextReader.prototype.field = function(token, module) {
+    throw new Error("Unknown field '" + token + "'" + this.location());
+};
+
+TextReader.prototype.whitespace = function() {
+    for (;;) {
+        while (this.position >= this.lineEnd) {
+            this.lineStart = this.lineEnd + 1;
+            this.position = this.lineStart;
+            if (this.position >= this.text.length) {
+                return false;
+            }
+            this.lineEnd = this.text.indexOf("\n", this.position);
+            if (this.lineEnd === -1) {
+                this.lineEnd = this.text.length;
+            }
+            this.line++;
+        }
+        var c = this.text[this.position];
+        switch (c) {
+            case " ":
+            case "\r":
+            case "\t":
+                this.position++;
+                break;
+            case "#":
+                this.position = this.lineEnd;
+                break;
+            default:
+                return true;
+        }
+    }
+};
+
+TextReader.prototype.tokenize = function() {
+    if (!this.whitespace()) {
+        this.token = "";
+        return this.token;
+    }
+    var c = this.text[this.position];
+    if (c === "{" || c === "}" || c === ":" || c === "[" || c === "," || c === "]") {
+        this.token = c;
+        return this.token;
+    }
+    var position = this.position + 1;
+    if (c >= "a" && c <= "z" || c >= "A" && c <= "Z" || c === "_") {
+        while (position < this.lineEnd) {
+            c = this.text[position];
+            if (c >= "a" && c <= "z" || c >= "A" && c <= "Z" || c >= "0" && c <= "9" || c === "_" || c === "+" || c === "-") {
+                position++;
+                continue;
+            }
+            break;
+        }
+        this.token = this.text.substring(this.position, position);
+        return this.token;
+    }
+    if (c >= "0" && c <= "9" || c === "-" || c === "+" || c === ".") {
+        while (position < this.lineEnd) {
+            c = this.text[position];
+            if (c >= "a" && c <= "z" || c >= "A" && c <= "Z" || c >= "0" && c <= "9" || c === "_" || c === "+" || c === "-" || c === ".") {
+                position++;
+                continue;
+            }
+            break;
+        }
+        this.token = this.text.substring(this.position, position);
+        return this.token;
+    }
+    if (c === "\"" || c === "'") {
+        var quote = c;
+        while (position < this.lineEnd) {
+            c = this.text[position];
+            if (c === "\\" && position < this.lineEnd) {
+                position += 2;
+                continue;
+            }
+            position++;
+            if (c === quote) {
+                break;
+            }
+        }
+        this.token = this.text.substring(this.position, position);
+        return this.token;
+    }
+    throw new Error("Unexpected token '" + c + "'" + this.location());
+};
+
+TextReader.prototype.peek = function() {
+    if (!this.cache) {
+        this.token = this.tokenize();
+        this.cache = true;
+    }
+    return this.token;
+};
+
+TextReader.prototype.read = function() {
+    if (!this.cache) {
+        this.token = this.tokenize();
+    }
+    this.position += this.token.length;
+    this.cache = false;
+    return this.token;
+};
+
+TextReader.prototype.assert = function(value) {
+    var token = this.read();
+    if (token === ":" && value === "{") {
+        token = this.read();
+    }
+    if (token !== value) {
+        throw new Error("Unexpected '" + token + "' instead of '" + value + "'" + this.location());
+    }
+};
+
+TextReader.prototype.location = function() {
+    return " at " + (this.line + 1).toString() + ":" + (this.position - this.lineStart + 1).toString();
+};
+
+},{"16":16}],12:[function(require,module,exports){
 "use strict";
 module.exports = {};
 
@@ -1334,7 +1740,7 @@ module.exports = {};
  * var root = protobuf.roots["myroot"];
  */
 
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 "use strict";
 
 /**
@@ -1370,13 +1776,13 @@ var rpc = exports;
  * @returns {undefined}
  */
 
-rpc.Service = require(13);
+rpc.Service = require(14);
 
-},{"13":13}],13:[function(require,module,exports){
+},{"14":14}],14:[function(require,module,exports){
 "use strict";
 module.exports = Service;
 
-var util = require(15);
+var util = require(16);
 
 // Extends EventEmitter
 (Service.prototype = Object.create(util.EventEmitter.prototype)).constructor = Service;
@@ -1516,11 +1922,11 @@ Service.prototype.end = function end(endedByRPC) {
     return this;
 };
 
-},{"15":15}],14:[function(require,module,exports){
+},{"16":16}],15:[function(require,module,exports){
 "use strict";
 module.exports = LongBits;
 
-var util = require(15);
+var util = require(16);
 
 /**
  * Constructs new long bits.
@@ -1718,7 +2124,7 @@ LongBits.prototype.length = function length() {
          : part2 < 128 ? 9 : 10;
 };
 
-},{"15":15}],15:[function(require,module,exports){
+},{"16":16}],16:[function(require,module,exports){
 "use strict";
 var util = exports;
 
@@ -1744,7 +2150,7 @@ util.utf8 = require(7);
 util.pool = require(6);
 
 // utility to work with the low and high bits of a 64 bit value
-util.LongBits = require(14);
+util.LongBits = require(15);
 
 // global object reference
 util.global = typeof window !== "undefined" && window
@@ -2134,11 +2540,11 @@ util._configure = function() {
         };
 };
 
-},{"1":1,"14":14,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7}],16:[function(require,module,exports){
+},{"1":1,"15":15,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7}],17:[function(require,module,exports){
 "use strict";
 module.exports = Writer;
 
-var util      = require(15);
+var util      = require(16);
 
 var BufferWriter; // cyclic
 
@@ -2595,15 +3001,15 @@ Writer._configure = function(BufferWriter_) {
     BufferWriter = BufferWriter_;
 };
 
-},{"15":15}],17:[function(require,module,exports){
+},{"16":16}],18:[function(require,module,exports){
 "use strict";
 module.exports = BufferWriter;
 
 // extends Writer
-var Writer = require(16);
+var Writer = require(17);
 (BufferWriter.prototype = Object.create(Writer.prototype)).constructor = BufferWriter;
 
-var util = require(15);
+var util = require(16);
 
 var Buffer = util.Buffer;
 
@@ -2678,7 +3084,7 @@ BufferWriter.prototype.string = function write_string_buffer(value) {
  * @returns {Buffer} Finished buffer
  */
 
-},{"15":15,"16":16}]},{},[8])
+},{"16":16,"17":17}]},{},[8])
 
 })();
 //# sourceMappingURL=protobuf.js.map

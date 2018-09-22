@@ -25,6 +25,8 @@ function static_target(root, options, callback) {
         var aliases = [];
         if (config.decode)
             aliases.push("Reader");
+        if (config["decode-text"])
+            aliases.push("TextReader");
         if (config.encode)
             aliases.push("Writer");
         aliases.push("util");
@@ -216,6 +218,7 @@ function beautifyCode(code) {
 var renameVars = {
     "Writer": "$Writer",
     "Reader": "$Reader",
+    "TextReader": "$TextReader",
     "util": "$util"
 };
 
@@ -530,6 +533,22 @@ function buildType(ref, type) {
             --indent;
             push("};");
         }
+    }
+
+    if (config["decode-text"]) {
+        push("");
+        pushComment([
+            "Decodes " + aOrAn(type.name) + " message from the specified text representation.",
+            "@function decodeText",
+            "@memberof " + exportName(type),
+            "@static",
+            "@param {$protobuf.TextReader|string} [" + (config.beautify ? "reader" : "r") + "] TextReader or text string to decode from",
+            "@param {boolean} [" + (config.beautify ? "block" : "b") + "] Assert enclosing curly braces when decoding nested objects (false by default)",
+            "@returns {" + exportName(type) + "} " + type.name,
+            "@throws {Error} If the payload is not a reader or valid string",
+            "@throws {$protobuf.util.ProtocolError} If required fields are missing"
+        ]);
+        buildFunction(type, "decodeText", protobuf.decoderText(type));
     }
 
     if (config.verify) {
